@@ -2,7 +2,7 @@
  [{description, "EMQX 4.4 Redis auth plugin - TR369 device authentication (port of unmtr369auth /mqtt/verify)"},
   {vsn, "1.0.0"},
   {modules, []},
-  {registered, [emqx_plugin_redis_auth_sup]},
+  {registered, [emqx_plugin_redis_auth_sup, emqx_plugin_redis_auth_log]},
   {applications, [kernel, stdlib, eredis]},
   {mod, {emqx_plugin_redis_auth_app, []}},
   {env, []},

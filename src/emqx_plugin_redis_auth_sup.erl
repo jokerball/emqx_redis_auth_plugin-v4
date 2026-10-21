@@ -30,11 +30,17 @@ init([]) ->
     ?LOG_INFO("redis_auth_clients_starting host=~s port=~p database=~p pool_size=~p",
               [Host, Port, Database, PoolSize]),
     ChildSpecs =
-        [#{id => {conn, I},
-           start => {emqx_plugin_redis_auth_conn, start_link, [Opts]},
+        [#{id => auth_log,
+           start => {emqx_plugin_redis_auth_log, start_link, []},
            restart => permanent,
            shutdown => 5000,
            type => worker,
-           modules => [emqx_plugin_redis_auth_conn]}
-         || I <- lists:seq(1, PoolSize)],
+           modules => [emqx_plugin_redis_auth_log]}
+         | [#{id => {conn, I},
+             start => {emqx_plugin_redis_auth_conn, start_link, [Opts]},
+             restart => permanent,
+             shutdown => 5000,
+             type => worker,
+             modules => [emqx_plugin_redis_auth_conn]}
+            || I <- lists:seq(1, PoolSize)]],
     {ok, {{one_for_one, 10, 10}, ChildSpecs}}.

@@ -26,7 +26,12 @@
 
 -record(state, {opts :: map(),
                 client :: pid() | undefined,
-                last_error :: term()}).
+                last_error :: term(),
+                last_warn_ms = 0 :: integer()}).
+
+%% Re-warn about an unchanged failure at most this often, so a long outage
+%% stays visible without one line per retry per connection.
+-define(WARN_INTERVAL_MS, 300000).
 
 start_link(Opts) ->
     gen_server:start_link(?MODULE, [Opts], []).
@@ -74,7 +79,8 @@ handle_info(connect, State) ->
     {noreply, connect(State)};
 handle_info({'EXIT', Client, Reason}, State = #state{client = Client}) ->
     ?LOG_WARNING("redis_auth_client_down reason=~p", [Reason]),
-    {noreply, connect(State#state{client = undefined, last_error = undefined})};
+    {noreply, connect(State#state{client = undefined, last_error = undefined,
+                                  last_warn_ms = 0})};
 handle_info(_Info, State) ->
     {noreply, State}.
 
@@ -104,19 +110,24 @@ connect(State = #state{opts = Opts}) ->
             retry(Reason, State)
     end.
 
-retry(Reason, State = #state{opts = Opts, last_error = LastError}) ->
+retry(Reason, State = #state{opts = Opts, last_error = LastError,
+                             last_warn_ms = LastWarn}) ->
     RetryMs = maps:get(reconnect_sleep, Opts, 1000),
-    %% Only warn when the failure reason changes, otherwise a long outage
-    %% would fill the log with one line per retry.
-    case Reason =:= LastError of
+    Now = erlang:system_time(millisecond),
+    %% A down redis must not produce one warning line per retry: warn on the
+    %% failure transition, then re-warn every ?WARN_INTERVAL_MS while it lasts.
+    Warn = Reason =/= LastError orelse Now - LastWarn >= ?WARN_INTERVAL_MS,
+    case Warn of
         true ->
-            ?LOG_DEBUG("redis_auth_connect_failed reason=~p", [Reason]);
-        false ->
             ?LOG_WARNING("redis_auth_connect_failed reason=~p retry_in_ms=~p",
-                         [Reason, RetryMs])
+                         [Reason, RetryMs]);
+        false ->
+            ?LOG_DEBUG("redis_auth_connect_failed reason=~p", [Reason])
     end,
     _ = erlang:send_after(RetryMs, self(), connect),
-    State#state{client = undefined, last_error = Reason}.
+    State#state{client = undefined,
+                last_error = Reason,
+                last_warn_ms = case Warn of true -> Now; false -> LastWarn end}.
 
 probe(#{host := Host0, port := Port, connect_timeout := Timeout}) ->
     case gen_tcp:connect(host_to_list(Host0), Port,

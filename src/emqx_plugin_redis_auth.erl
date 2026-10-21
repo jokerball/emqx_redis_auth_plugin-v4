@@ -46,11 +46,15 @@
 load(_Env) ->
     _ = emqx:hook('client.authenticate', {?MODULE, authenticate, []}, ?HOOK_PRIORITY),
     _ = emqx_ctl:register_command(?APP, {emqx_plugin_redis_auth_cli, cmd}),
+    ?LOG_INFO("redis_auth_plugin_started hook=client.authenticate priority=~p",
+              [?HOOK_PRIORITY]),
     ok.
 
 unload() ->
+    ?LOG_INFO("redis_auth_plugin_stopping"),
     _ = emqx:unhook('client.authenticate', {?MODULE, authenticate}),
     _ = emqx_ctl:unregister_command(?APP),
+    ?LOG_INFO("redis_auth_plugin_stopped"),
     ok.
 
 %%--------------------------------------------------------------------
@@ -63,15 +67,26 @@ unload() ->
 authenticate(ClientInfo, AuthResult) ->
     case do_verify(ClientInfo) of
         allow ->
+            log_auth(success, ClientInfo, allow),
             {stop, AuthResult#{auth_result => success,
                                anonymous => false,
                                is_superuser => false}};
         {deny, Reason} ->
-            ?LOG_DEBUG("redis_auth_denied reason=~p clientid=~p username=~p",
-                       [Reason,
-                        maps:get(clientid, ClientInfo, undefined),
-                        maps:get(username, ClientInfo, undefined)]),
+            log_auth(failure, ClientInfo, Reason),
             {stop, AuthResult#{auth_result => not_authorized, anonymous => false}}
+    end.
+
+%% Authentication results are written to a dedicated audit file: failures at
+%% warning level, successes at info level.
+log_auth(Result, ClientInfo, Reason) ->
+    Fields = [{result, Result},
+              {clientid, maps:get(clientid, ClientInfo, undefined)},
+              {username, maps:get(username, ClientInfo, undefined)},
+              {peerhost, maps:get(peerhost, ClientInfo, undefined)},
+              {reason, Reason}],
+    case Result of
+        success -> emqx_plugin_redis_auth_log:info(Fields);
+        failure -> emqx_plugin_redis_auth_log:warning(Fields)
     end.
 
 %%--------------------------------------------------------------------
@@ -153,13 +168,21 @@ verify_keepalive(ApId) ->
 %% The Java implementation catches redis errors and falls back to 'allow' so
 %% that an unavailable redis does not lock out every device.
 degrade_on_redis_error(Reason) ->
+    log_redis_error(Reason),
     case conf_bool(fallback_allow_on_redis_error, true) of
         true ->
-            ?LOG_WARNING("redis_auth_redis_error_fallback_allow reason=~p", [Reason]),
             allow;
         false ->
             {deny, redis_error}
     end.
+
+%% A lost connection is already reported at warning level by the connection
+%% wrapper (on the failure transition), so it is only logged at debug here to
+%% avoid one warning line per authentication attempt during an outage.
+log_redis_error(no_connection) ->
+    ?LOG_DEBUG("redis_auth_redis_unavailable");
+log_redis_error(Reason) ->
+    ?LOG_WARNING("redis_auth_redis_error reason=~p", [Reason]).
 
 %%--------------------------------------------------------------------
 %% Helpers (mirrors the Java CommonUtils.getRealMac)
