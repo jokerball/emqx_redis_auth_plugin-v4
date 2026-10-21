@@ -8,7 +8,9 @@
 %%
 %% Writes are casts, so the authentication path never blocks on disk I/O.
 %% The file is rotated by size; `auth_log_file' can be set to an empty
-%% string to disable the audit log.
+%% string to disable the audit log. The level used for each event is
+%% configurable (`auth_log_success_level' / `auth_log_failure_level'), and
+%% a level of `none' drops that kind of event.
 %%--------------------------------------------------------------------
 
 -module(emqx_plugin_redis_auth_log).
@@ -17,7 +19,7 @@
 
 -include_lib("kernel/include/logger.hrl").
 
--export([start_link/0, info/1, warning/1]).
+-export([start_link/0, log/2]).
 
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2,
          code_change/3]).
@@ -32,17 +34,17 @@
                 path :: binary(),
                 max_bytes :: pos_integer(),
                 max_files :: pos_integer(),
+                success_level = none :: atom(),
+                failure_level = warning :: atom(),
                 size = 0 :: non_neg_integer(),
                 open_error_logged = false :: boolean()}).
 
 start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
-info(Fields) ->
-    gen_server:cast(?MODULE, {write, info, Fields}).
-
-warning(Fields) ->
-    gen_server:cast(?MODULE, {write, warning, Fields}).
+%% Result is `success' | `failure'.
+log(Result, Fields) ->
+    gen_server:cast(?MODULE, {write, Result, Fields}).
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks
@@ -52,14 +54,21 @@ init([]) ->
     Path = conf(auth_log_file, ?DEFAULT_FILE),
     MaxBytes = max(1, conf_int(auth_log_max_size, ?DEFAULT_MAX_SIZE)),
     MaxFiles = max(1, conf_int(auth_log_max_files, ?DEFAULT_MAX_FILES)),
-    State = open(#state{path = Path, max_bytes = MaxBytes, max_files = MaxFiles}),
+    State = open(#state{path = Path,
+                        max_bytes = MaxBytes,
+                        max_files = MaxFiles,
+                        success_level = conf_level(auth_log_success_level, none),
+                        failure_level = conf_level(auth_log_failure_level, warning)}),
     {ok, State}.
 
 handle_call(_Req, _From, State) ->
     {reply, ignored, State}.
 
-handle_cast({write, Level, Fields}, State) ->
-    {noreply, do_write(format_line(Level, Fields), State)};
+handle_cast({write, Result, Fields}, State) ->
+    case level_for(Result, State) of
+        none -> {noreply, State};
+        Level -> {noreply, do_write(format_line(Level, Fields), State)}
+    end;
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
@@ -158,6 +167,9 @@ format_value(Value) when is_integer(Value) ->
 format_value(Value) ->
     iolist_to_binary(io_lib:format("~0p", [Value])).
 
+level_for(success, #state{success_level = Level}) -> Level;
+level_for(failure, #state{failure_level = Level}) -> Level.
+
 conf(Key, Default) ->
     case application:get_env(?APP, Key, undefined) of
         undefined -> Default;
@@ -174,6 +186,29 @@ conf_int(Key, Default) ->
         Value when is_list(Value) -> to_integer(list_to_binary(Value), Default);
         _Value -> Default
     end.
+
+conf_level(Key, Default) ->
+    case application:get_env(?APP, Key, undefined) of
+        undefined -> Default;
+        Value when is_atom(Value) -> valid_level(Value, Default);
+        Value when is_binary(Value) -> level_from_binary(Value, Default);
+        Value when is_list(Value) -> level_from_binary(list_to_binary(Value), Default);
+        _Value -> Default
+    end.
+
+level_from_binary(<<"debug">>, _Default) -> debug;
+level_from_binary(<<"info">>, _Default) -> info;
+level_from_binary(<<"notice">>, _Default) -> notice;
+level_from_binary(<<"warning">>, _Default) -> warning;
+level_from_binary(<<"error">>, _Default) -> error;
+level_from_binary(<<"none">>, _Default) -> none;
+level_from_binary(_Value, Default) -> Default.
+
+valid_level(Level, _Default) when Level =:= debug; Level =:= info; Level =:= notice;
+                                   Level =:= warning; Level =:= error; Level =:= none ->
+    Level;
+valid_level(_Level, Default) ->
+    Default.
 
 to_integer(Bin, Default) ->
     try

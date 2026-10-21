@@ -123,12 +123,26 @@
 %% Authentication audit log
 %%--------------------------------------------------------------------
 
-%% Dedicated file for authentication results (success -> info, failure ->
-%% warning). Relative paths are resolved against the EMQX root directory.
-%% Set to an empty string to disable the audit log.
+%% Dedicated file for authentication results. Relative paths are resolved
+%% against the EMQX root directory. Set to an empty string to disable the
+%% audit log.
 {mapping, "redis_auth.auth_log_file", "emqx_plugin_redis_auth.auth_log_file", [
   {default, "log/emqx_plugin_redis_auth.log"},
   {datatype, string}
+]}.
+
+%% Level used for successful authentication entries; `none' drops them.
+{mapping, "redis_auth.auth_log_success_level",
+         "emqx_plugin_redis_auth.auth_log_success_level", [
+  {default, none},
+  {datatype, {enum, [debug, info, notice, warning, error, none]}}
+]}.
+
+%% Level used for failed authentication entries; `none' drops them.
+{mapping, "redis_auth.auth_log_failure_level",
+         "emqx_plugin_redis_auth.auth_log_failure_level", [
+  {default, warning},
+  {datatype, {enum, [debug, info, notice, warning, error, none]}}
 ]}.
 
 %% Rotate the audit file once it grows beyond this size (bytes).

@@ -76,17 +76,40 @@ authenticate(ClientInfo, AuthResult) ->
             {stop, AuthResult#{auth_result => not_authorized, anonymous => false}}
     end.
 
-%% Authentication results are written to a dedicated audit file: failures at
-%% warning level, successes at info level.
+%% Authentication results are written to a dedicated audit file. The level
+%% of each kind of event is configurable and defaults to none for successes
+%% and warning for failures.
 log_auth(Result, ClientInfo, Reason) ->
     Fields = [{result, Result},
               {clientid, maps:get(clientid, ClientInfo, undefined)},
               {username, maps:get(username, ClientInfo, undefined)},
               {peerhost, maps:get(peerhost, ClientInfo, undefined)},
+              {peerport, peer_port()},
+              {sockport, maps:get(sockport, ClientInfo, undefined)},
               {reason, Reason}],
-    case Result of
-        success -> emqx_plugin_redis_auth_log:info(Fields);
-        failure -> emqx_plugin_redis_auth_log:warning(Fields)
+    emqx_plugin_redis_auth_log:log(Result, Fields).
+
+%% ClientInfo carries the listener port (`sockport') but not the client's
+%% source port: emqx_channel drops it when building the client info. The
+%% connection process keeps the formatted peername ("ip:port") in its logger
+%% metadata, and the hook runs in that same process, so the source port can
+%% be read from there.
+peer_port() ->
+    case logger:get_process_metadata() of
+        #{peername := Peername} when is_list(Peername) ->
+            case string:split(Peername, ":", trailing) of
+                [_Host, Port] -> to_port(Port);
+                _ -> undefined
+            end;
+        _ ->
+            undefined
+    end.
+
+to_port(Str) ->
+    try
+        list_to_integer(Str)
+    catch
+        _:_ -> undefined
     end.
 
 %%--------------------------------------------------------------------
