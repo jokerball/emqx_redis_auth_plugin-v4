@@ -1,0 +1,120 @@
+%%-*- mode: erlang -*-
+%% emqx_plugin_redis_auth config mapping
+%%
+%% The keys are read from `etc/plugins/emqx_plugin_redis_auth.conf' and
+%% mapped into the `emqx_plugin_redis_auth' application environment.
+
+%%--------------------------------------------------------------------
+%% Redis connection
+%%--------------------------------------------------------------------
+
+{mapping, "redis_auth.redis_host", "emqx_plugin_redis_auth.redis_host", [
+  {default, "127.0.0.1"},
+  {datatype, string}
+]}.
+
+{mapping, "redis_auth.redis_port", "emqx_plugin_redis_auth.redis_port", [
+  {default, 6379},
+  {datatype, integer}
+]}.
+
+{mapping, "redis_auth.redis_password", "emqx_plugin_redis_auth.redis_password", [
+  {default, ""},
+  {datatype, string}
+]}.
+
+{mapping, "redis_auth.redis_database", "emqx_plugin_redis_auth.redis_database", [
+  {default, 0},
+  {datatype, integer}
+]}.
+
+%% eredis is a single-connection client; the plugin starts this many
+%% connections and hashes each redis command onto one of them.
+{mapping, "redis_auth.redis_pool_size", "emqx_plugin_redis_auth.redis_pool_size", [
+  {default, 8},
+  {datatype, integer}
+]}.
+
+{mapping, "redis_auth.redis_reconnect_sleep_ms", "emqx_plugin_redis_auth.redis_reconnect_sleep_ms", [
+  {default, 1000},
+  {datatype, integer}
+]}.
+
+{mapping, "redis_auth.redis_query_timeout_ms", "emqx_plugin_redis_auth.redis_query_timeout_ms", [
+  {default, 2000},
+  {datatype, integer}
+]}.
+
+{mapping, "redis_auth.redis_connect_timeout_ms", "emqx_plugin_redis_auth.redis_connect_timeout_ms", [
+  {default, 5000},
+  {datatype, integer}
+]}.
+
+%%--------------------------------------------------------------------
+%% Redis business keys (mirrors the Java STR_INDEX_UID2ID / STR_AP)
+%%--------------------------------------------------------------------
+
+{mapping, "redis_auth.snindex_key_prefix", "emqx_plugin_redis_auth.snindex_key_prefix", [
+  {default, "snindex:"},
+  {datatype, string}
+]}.
+
+{mapping, "redis_auth.ap_key_prefix", "emqx_plugin_redis_auth.ap_key_prefix", [
+  {default, "ap:"},
+  {datatype, string}
+]}.
+
+{mapping, "redis_auth.ap_status_field", "emqx_plugin_redis_auth.ap_status_field", [
+  {default, "status"},
+  {datatype, string}
+]}.
+
+%% AP hash value that means "main channel offline"; any other non-empty
+%% value is treated as online.
+{mapping, "redis_auth.ap_status_offline", "emqx_plugin_redis_auth.ap_status_offline", [
+  {default, "0"},
+  {datatype, string}
+]}.
+
+%% A clientid containing this marker is treated as a keep-alive channel,
+%% and the real MAC is taken from the "MAC-Marker" clientid.
+{mapping, "redis_auth.keepalived_tag", "emqx_plugin_redis_auth.keepalived_tag", [
+  {default, "Tr369KeepAlived"},
+  {datatype, string}
+]}.
+
+%%--------------------------------------------------------------------
+%% Authentication rules
+%%--------------------------------------------------------------------
+
+%% Comma separated usernames that are always allowed (Java whiteServiceList).
+{mapping, "redis_auth.white_service_list", "emqx_plugin_redis_auth.white_service_list", [
+  {default, "unmtr369service,unmtr369bulkdataservice,unmtr369accessservice"},
+  {datatype, string}
+]}.
+
+%% Platform management account (Java UNM2000).
+{mapping, "redis_auth.unm_username", "emqx_plugin_redis_auth.unm_username", [
+  {default, "UNM2000"},
+  {datatype, string}
+]}.
+
+{mapping, "redis_auth.unm_expected_password", "emqx_plugin_redis_auth.unm_expected_password", [
+  {default, "Umc2024@Adm"},
+  {datatype, string}
+]}.
+
+%% AES-128 key used to decrypt the base64 password of the UNM2000 account
+%% (AES/CBC/NoPadding, zero IV).
+{mapping, "redis_auth.aes_key", "emqx_plugin_redis_auth.aes_key", [
+  {default, "Fiber#Aes@369069"},
+  {datatype, string}
+]}.
+
+%% Allow the connection when redis is unreachable, so that a redis outage
+%% does not lock out every device (mirrors the Java catch -> allow).
+{mapping, "redis_auth.fallback_allow_on_redis_error",
+         "emqx_plugin_redis_auth.fallback_allow_on_redis_error", [
+  {default, on},
+  {datatype, flag}
+]}.
